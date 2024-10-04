@@ -1,0 +1,2 @@
+%:
+	$(MAKE) -C ../local-infra $*

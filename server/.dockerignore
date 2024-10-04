@@ -1,0 +1,15 @@
+node_modules/
+.dockerignore
+.gitignore
+*.md
+*.log
+dist
+.docker
+.git*
+.env
+*Dockerfile*
+*docker-compose*
+.prettierrc.json
+.nvmrc
+Makefile
+.vscode

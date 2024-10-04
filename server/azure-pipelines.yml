@@ -1,0 +1,121 @@
+# Docker
+# Build a Docker image
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+pr:
+  branches:
+    include:
+      - main
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - server/*
+
+resources:
+  - repo: self
+
+variables:
+  - group: backend_secret
+  - group: backend_variables
+
+stages:
+  - stage: build
+    condition: or(eq(variables['Build.Reason'], 'Manual'),or(eq(variables['Build.Reason'], 'PullRequest'),eq(variables['Build.Reason'], 'IndividualCI')))
+    displayName: 'Build'
+    jobs:
+      - job: build_test
+        displayName: 'Build and test'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSource: 'spec'
+              versionSpec: '20.x'
+              checkLatest: true
+            displayName: 'Install Node.js'
+          - script: |
+              npm install
+              npm run prisma:prod
+              npm run prisma:generate
+              npm run build
+            workingDirectory: '$(System.DefaultWorkingDirectory)/server'
+            displayName: 'npm install, build, and test'
+            env:
+              NODE_ENV: development
+              PORT: $(port)
+              COOKIE_DOMAIN: $(FrontUrl)
+              URL: $(FrontUrl)
+              JWT_SECRET: $(JwtSecret)
+              JWT_REFRESH_SECRET: $(JwtRefreshSecret)
+              AZURE_STORAGE_ACCOUNT_NAME: '$(StorageAccountName)'
+              AZURE_STORAGE_ACCOUNT_KEY: '$(StorageAccountKey)'
+              DATABASE_URL: 'postgresql://$(DbUsername):$(DbPassword)@$(VmIp):5432/$(DbName)'
+              MAIL_ID: '$(MailId)'
+              MAIL_PASSWORD: '$(MailPassword)'
+              INSTRUMENTATION_KEY: '$(InsightKey)'
+              GOOGLE_CLIENT_ID: '$(GoogleClientId)'
+              GOOGLE_CLIENT_SECRET: '$(GoogleClientSecret)'
+              GOOGLE_REDIRECT_URI: '$(GoogleRedirectUrl)'
+          - task: CopyFiles@2
+            inputs:
+              SourceFolder: '$(System.DefaultWorkingDirectory)/server'
+              Contents: |
+                dist/**
+                node_modules/**
+                package*.json
+              TargetFolder: '$(Build.ArtifactStagingDirectory)'
+              CleanTargetFolder: true
+
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: '$(Build.ArtifactStagingDirectory)'
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+              replaceExistingArchive: true
+
+          - publish: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+            artifact: drop
+
+  - stage: deploy
+    displayName: 'Deploy to app service'
+    dependsOn: build
+    condition: succeeded()
+    jobs:
+      - deployment: deploy_webapp
+        displayName: 'Deploy to app service'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: '$(service_connection)'
+                    appType: 'webAppLinux'
+                    appName: '$(app_name)'
+                    package: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
+                    runtimeStack: 'NODE|20.10'
+                    startUpCommand: 'node dist/index.js'
+                    appSettings: |
+                      -NODE_ENV production 
+                      -PORT 8080 
+                      -WEBSITES_PORT 8080 
+                      -COOKIE_DOMAIN $(FrontUrl) 
+                      -URL $(FrontUrl) 
+                      -JWT_SECRET $(JwtSecret) 
+                      -JWT_REFRESH_SECRET $(JwtRefreshSecret) 
+                      -DATABASE_URL "postgresql://$(DbUsername):$(DbPassword)@10.0.1.4:5432/$(DbName)" 
+                      -MAIL_ID "$(MailId)" 
+                      -MAIL_PASSWORD "$(MailPassword)" 
+                      -AZURE_STORAGE_ACCOUNT_NAME "$(StorageAccountName)" 
+                      -AZURE_STORAGE_ACCOUNT_KEY "$(StorageAccountKey)" 
+                      -GOOGLE_CLIENT_ID "$(GoogleClientId)" 
+                      -GOOGLE_CLIENT_SECRET "$(GoogleClientSecret)" 
+                      -GOOGLE_REDIRECT_URI "$(GoogleRedirectUrl)" 
+                      -WEBSITE_TIME_ZONE "Asia/Ho_Chi_Minh" 
+                      -INSTRUMENTATION_KEY "$(InsightKey)"
