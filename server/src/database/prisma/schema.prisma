@@ -1,46 +1,135 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Define the Prisma schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+datasource db {
+  provider = "postgresql" // Specify your database provider
+  url      = env("DATABASE_URL")
+}
 
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// User Model
+// User model
 model User {
-  id       Int       @id @default(autoincrement())
-  username String    @db.VarChar(255)
-  password String    @db.VarChar(255)
-  messages Message[]
-
-  @@map("users")
+  id               Int            @id @default(autoincrement())
+  username         String         @unique
+  email            String         @unique
+  password         String
+  profileImage     String? // Profile picture URL
+  status           String? // Custom status message
+  online           Boolean        @default(false) // Presence indicator
+  messagesSent     Message[]      @relation("SentMessages")
+  messagesReceived Message[]      @relation("ReceivedMessages")
+  groupMemberships GroupMember[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  reactions        Reaction[]
+  files            File[]
+  notifications    Notification[]
+  GroupMessage     GroupMessage[]
 }
 
-model Room {
-  id       Int       @id @default(autoincrement())
-  name     String    @unique
-  messages Message[]
-
-  @@map("rooms")
-}
-
+// Message model for one-on-one chat
 model Message {
-  id        Int      @id @default(autoincrement())
-  content   String?
-  type      String
-  fileName  String?
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  roomId    Int
-  room      Room     @relation(fields: [roomId], references: [id])
+  id          Int        @id @default(autoincrement())
+  content     String?
+  mediaUrl    String? // For image, video, audio, or other file attachments
+  sender      User       @relation("SentMessages", fields: [senderId], references: [id])
+  senderId    Int
+  recipient   User       @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  recipientId Int
+  isRead      Boolean    @default(false) // Read receipt
+  createdAt   DateTime   @default(now())
+  reactions   Reaction[]
+  files       File[]
+}
 
-  @@map("messages")
+// Group model for group chat
+model Group {
+  id        Int            @id @default(autoincrement())
+  name      String
+  imageUrl  String? // Group profile picture
+  members   GroupMember[]
+  messages  GroupMessage[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+// GroupMember model to manage many-to-many relationship between Users and Groups
+model GroupMember {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   Int
+  createdAt DateTime @default(now())
+}
+
+// GroupMessage model for messages within groups
+model GroupMessage {
+  id        Int        @id @default(autoincrement())
+  content   String?
+  mediaUrl  String? // For multimedia attachments
+  sender    User       @relation(fields: [senderId], references: [id])
+  senderId  Int
+  group     Group      @relation(fields: [groupId], references: [id])
+  groupId   Int
+  createdAt DateTime   @default(now())
+  reactions Reaction[]
+  files     File[]
+}
+
+// Reaction model for reacting to messages
+model Reaction {
+  id             Int           @id @default(autoincrement())
+  emoji          String // Emoji for reaction
+  user           User          @relation(fields: [userId], references: [id])
+  userId         Int
+  message        Message?      @relation(fields: [messageId], references: [id])
+  messageId      Int?
+  groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
+  groupMessageId Int?
+  createdAt      DateTime      @default(now())
+}
+
+// File model for handling file sharing
+model File {
+  id             Int           @id @default(autoincrement())
+  url            String // URL to the file
+  type           FileType // Enum to represent file types
+  sender         User          @relation(fields: [senderId], references: [id])
+  senderId       Int
+  message        Message?      @relation(fields: [messageId], references: [id])
+  messageId      Int?
+  groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
+  groupMessageId Int?
+  createdAt      DateTime      @default(now())
+}
+
+// Enum for File types
+enum FileType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+}
+
+// Notification model for managing notifications
+model Notification {
+  id        Int              @id @default(autoincrement())
+  type      NotificationType
+  user      User             @relation(fields: [userId], references: [id])
+  userId    Int
+  message   String // Notification content
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}
+
+// Enum for Notification types
+enum NotificationType {
+  MESSAGE
+  CALL
+  REACTION
+  FILE
+  OTHER
 }
