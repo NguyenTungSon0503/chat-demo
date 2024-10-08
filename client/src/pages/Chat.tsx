@@ -50,7 +50,10 @@ const Chat = () => {
 
     if (selectedRoom?.id) {
       fetchMessages(selectedRoom?.id);
-      socket.emit("joinRoom", selectedRoom?.id);
+      socket.emit("joinRoom", {
+        groupId: selectedRoom?.id,
+        userId,
+      });
       socket.on("newMessage", (message) => {
         setMessages((prevMessages) => [...prevMessages, message]);
       });

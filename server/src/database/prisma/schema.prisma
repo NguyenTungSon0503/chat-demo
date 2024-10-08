@@ -1,12 +1,16 @@
-// Define the Prisma schema
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-datasource db {
-  provider = "postgresql" // Specify your database provider
-  url      = env("DATABASE_URL")
-}
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // User model
@@ -27,11 +31,13 @@ model User {
   files            File[]
   notifications    Notification[]
   GroupMessage     GroupMessage[]
+
+  @@map("users")
 }
 
 // Message model for one-on-one chat
 model Message {
-  id          Int        @id @default(autoincrement())
+  id          String     @id @default(uuid())
   content     String?
   mediaUrl    String? // For image, video, audio, or other file attachments
   sender      User       @relation("SentMessages", fields: [senderId], references: [id])
@@ -42,17 +48,21 @@ model Message {
   createdAt   DateTime   @default(now())
   reactions   Reaction[]
   files       File[]
+
+  @@map("messages")
 }
 
 // Group model for group chat
 model Group {
-  id        Int            @id @default(autoincrement())
+  id        String         @id @default(uuid())
   name      String
   imageUrl  String? // Group profile picture
   members   GroupMember[]
   messages  GroupMessage[]
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+
+  @@map("groups")
 }
 
 // GroupMember model to manage many-to-many relationship between Users and Groups
@@ -61,22 +71,26 @@ model GroupMember {
   user      User     @relation(fields: [userId], references: [id])
   userId    Int
   group     Group    @relation(fields: [groupId], references: [id])
-  groupId   Int
+  groupId   String
   createdAt DateTime @default(now())
+
+  @@map("group_members")
 }
 
 // GroupMessage model for messages within groups
 model GroupMessage {
-  id        Int        @id @default(autoincrement())
+  id        String     @id @default(uuid())
   content   String?
   mediaUrl  String? // For multimedia attachments
   sender    User       @relation(fields: [senderId], references: [id])
   senderId  Int
   group     Group      @relation(fields: [groupId], references: [id])
-  groupId   Int
+  groupId   String
   createdAt DateTime   @default(now())
   reactions Reaction[]
   files     File[]
+
+  @@map("group_messages")
 }
 
 // Reaction model for reacting to messages
@@ -86,10 +100,12 @@ model Reaction {
   user           User          @relation(fields: [userId], references: [id])
   userId         Int
   message        Message?      @relation(fields: [messageId], references: [id])
-  messageId      Int?
+  messageId      String?
   groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
-  groupMessageId Int?
+  groupMessageId String?
   createdAt      DateTime      @default(now())
+
+  @@map("reactions")
 }
 
 // File model for handling file sharing
@@ -100,10 +116,12 @@ model File {
   sender         User          @relation(fields: [senderId], references: [id])
   senderId       Int
   message        Message?      @relation(fields: [messageId], references: [id])
-  messageId      Int?
+  messageId      String?
   groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
-  groupMessageId Int?
+  groupMessageId String?
   createdAt      DateTime      @default(now())
+
+  @@map("files")
 }
 
 // Enum for File types
@@ -123,6 +141,8 @@ model Notification {
   message   String // Notification content
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
+
+  @@map("notifications")
 }
 
 // Enum for Notification types

@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 const loginFormSchema = z.object({
-  username: z.string({ required_error: "username is required" }),
+  email: z.string({ required_error: "email is required" }),
   password: z.string(),
 });
 
@@ -57,14 +57,14 @@ export default function Login() {
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
                 <FormField
                   control={form.control}
-                  name="username"
+                  name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>username</FormLabel>
+                      <FormLabel>email</FormLabel>
                       <FormControl>
-                        <Input id="username-sign-up" placeholder="m@example.com" {...field} />
+                        <Input id="email-sign-up" placeholder="m@example.com" {...field} />
                       </FormControl>
-                      {errors.username && <FormMessage>{errors.username.message}</FormMessage>}
+                      {errors.email && <FormMessage>{errors.email.message}</FormMessage>}
                     </FormItem>
                   )}
                 />
