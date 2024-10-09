@@ -16,8 +16,8 @@ router.post('/', async (req, res) => {
 router.get('/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
-    // Fetch groups
-    const groups = await prisma.group.findMany({
+    // Fetch the groups the user has joined
+    const userGroups = await prisma.group.findMany({
       where: {
         members: {
           some: {
@@ -42,7 +42,7 @@ router.get('/:userId', async (req, res) => {
       },
     });
 
-    const transformedGroups = groups.map((group) => ({
+    const transformedGroups = userGroups.map((group) => ({
       id: group.id,
       name: group.name,
       imageUrl: group.imageUrl,
@@ -53,7 +53,7 @@ router.get('/:userId', async (req, res) => {
       type: 'group',
     }));
 
-    // Fetch direct messages
+    // Fetch direct message contacts, ensuring uniqueness
     const direct = await prisma.message.findMany({
       where: {
         OR: [{ senderId: Number(userId) }, { recipientId: Number(userId) }],
@@ -67,6 +67,7 @@ router.get('/:userId', async (req, res) => {
             profileImage: true,
           },
         },
+        senderId: true,
         sender: {
           select: {
             id: true,
@@ -77,36 +78,27 @@ router.get('/:userId', async (req, res) => {
       },
     });
 
-    const removeDuplicatesDirect = direct.filter(
-      (message, index, self) =>
-        index ===
-        self.findIndex(
-          (t) =>
-            t.recipient.id === message.recipient.id ||
-            t.sender.id === message.sender.id ||
-            t.recipient.id === message.sender.id ||
-            t.sender.id === message.recipient.id,
-        ),
-    );
+    const uniqueContacts = {};
+    direct.forEach((msg) => {
+      const contact =
+        msg.senderId === Number(userId) ? msg.recipient : msg.sender;
 
-    const transformedDirect = removeDuplicatesDirect.map((message) => ({
-      id: message.id,
-      sender: {
-        id: message.sender.id,
-        username: message.sender.username,
-        profileImage: message.sender.profileImage,
-      },
-      recipient: {
-        id: message.recipient.id,
-        username: message.recipient.username,
-        profileImage: message.recipient.profileImage,
-      },
-      type: 'direct',
-    }));
+      if (contact && !uniqueContacts[contact.id]) {
+        uniqueContacts[contact.id] = {
+          recipientId: contact.id,
+          name: contact.username,
+          profileImage: contact.profileImage,
+          type: 'direct',
+        };
+      }
+    });
 
-    res.json([...transformedGroups, ...transformedDirect]);
+    const uniqueContactsArray = Object.values(uniqueContacts);
+
+    res.json([...transformedGroups, ...uniqueContactsArray]);
   } catch (error) {
-    res.status(500).json({ error: 'Could not retrieve messages' });
+    console.error(error);
+    res.status(500).json({ error: 'Something went wrong.' });
   }
 });
 

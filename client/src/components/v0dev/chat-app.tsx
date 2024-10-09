@@ -8,8 +8,33 @@ import axios from "axios";
 import EmojiPicker from "emoji-picker-react";
 import Cookies from "js-cookie";
 import { Menu, Mic, MicOff, Paperclip, Phone, Send, Video, VideoOff, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import { useEffect, useState } from "react";
+import { useSocket } from "@/hooks/use-socket";
+import { useMessages } from "@/hooks/use-message";
+import { API_URL } from "@/constant/api";
+
+type GroupContact = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  members: Member[];
+  type: "group";
+};
+
+type Member = {
+  userId: number;
+  username: string;
+  profileImage?: string;
+};
+
+type DirectContact = {
+  recipientId: number;
+  name: string;
+  profileImage?: string;
+  type: "direct";
+};
+
+type Contact = GroupContact | DirectContact;
 
 type DirectMessage = {
   id: number;
@@ -49,41 +74,11 @@ type GroupMessage = {
 
 type Message = DirectMessage | GroupMessage;
 
-type GroupContact = {
-  id: number;
-  name: string;
-  imageUrl: string;
-  members: {
-    user: {
-      id: number;
-      username: string;
-    };
-  }[];
-  type: "group";
-};
-
-type DirectContact = {
-  id: number;
-  content: string | null;
-  createdAt: Date;
-  sender: {
-    id: number;
-    username: string;
-  };
-  type: "direct";
-  recipient: {
-    id: number;
-    username: string;
-    profileImage?: string;
-  };
-};
-
-type Contact = GroupContact | DirectContact;
-
 type SidebarProps = {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
   contacts: Contact[];
+  selectedContact: Contact | null;
   setSelectedContact: (contact: Contact) => void;
 };
 
@@ -116,7 +111,6 @@ type CallDialogProps = {
 };
 
 export default function ChatApp() {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [allContact, setAllContact] = useState<Contact[]>([]);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -127,105 +121,33 @@ export default function ChatApp() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [hoveredMessageId, setHoveredMessageId] = useState<number | null>(null);
 
-  const socketRef = useRef<Socket | null>(null);
-
   const userId = Cookies.get("userId");
+  const socketRef = useSocket(userId);
+  const messages = useMessages(selectedContact, userId, socketRef);
 
   useEffect(() => {
-    if (!userId) {
-      console.error("User ID not found in cookies");
-      return;
-    }
-
-    // Initialize socket only once when component mounts
-    socketRef.current = io("http://localhost:5000", {
-      query: { userId },
-    });
-
-    // Clean up the socket connection on component unmount
-    return () => {
-      socketRef.current?.disconnect();
-    };
-  }, [userId]);
-
-  useEffect(() => {
-    if (!selectedContact || !socketRef.current) return;
-
-    const { id, type } = selectedContact;
-
-    // Fetch initial messages for the selected contact
-    const fetchMessages = async () => {
+    const fetchAllContacts = async () => {
       try {
-        const params = type === "direct" ? { userId: Number(userId), recipientId: selectedContact.recipient.id } : { groupId: id };
-        const queryString = new URLSearchParams(
-          Object.entries(params).reduce((acc, [key, value]) => {
-            if (value !== undefined) {
-              acc[key] = value.toString();
-            }
-            return acc;
-          }, {} as Record<string, string>)
-        );
-        const response = await axios.get(`http://localhost:5000/api/messages/${type}?${queryString}`);
-        setMessages(response.data);
+        const response = await axios.get(`${API_URL}/groups/${userId}`);
+        setAllContact(response.data);
+        setSelectedContact(response.data[0]);
       } catch (error) {
-        console.error("Error fetching messages:", error);
+        console.error("Error fetching groups:", error);
       }
     };
 
-    fetchMessages();
-
-    // Listen for new messages based on contact type
-    const event = type === "direct" ? "newDirectMessage" : "newGroupMessage";
-    socketRef.current.on(event, (message) => {
-      setMessages((prevMessages) => [...prevMessages, message]);
-    });
-
-    // Manage joining and leaving rooms for group messages
-    if (type === "group") {
-      socketRef.current.emit("joinRoom", { groupId: id, userId });
-    }
-
-    return () => {
-      // Cleanup the event listeners and leave the room when contact changes
-      socketRef.current?.off(event);
-      if (type === "group") {
-        socketRef.current?.emit("leaveRoom", id);
-      }
-    };
-  }, [selectedContact, userId]);
-
-  useEffect(() => {
     fetchAllContacts();
   }, []);
 
-  const fetchAllContacts = async () => {
-    try {
-      const response = await axios.get(`http://localhost:5000/api/groups/${userId}`);
-      setAllContact(response.data);
-    } catch (error) {
-      console.error("Error fetching groups:", error);
-    }
-  };
-
   const handleSendMessage = () => {
     if (inputMessage.trim()) {
-      if (selectedContact?.type === "direct") {
-        const messageData = {
-          content: inputMessage,
-          senderId: userId,
-          recipientId: selectedContact?.recipient.id,
-        };
-        socketRef.current?.emit("sendDirectMessage", messageData);
-        setInputMessage("");
-      } else if (selectedContact?.type === "group") {
-        const messageData = {
-          content: inputMessage,
-          senderId: userId,
-          groupId: selectedContact?.id,
-        };
-        socketRef.current?.emit("sendGroupMessage", messageData);
-        setInputMessage("");
-      }
+      const messageData =
+        selectedContact?.type === "direct"
+          ? { content: inputMessage, senderId: userId, recipientId: selectedContact?.recipientId }
+          : { content: inputMessage, senderId: userId, groupId: selectedContact?.id };
+
+      socketRef.current?.emit("sendMessage", messageData);
+      setInputMessage("");
     }
   };
 
@@ -250,14 +172,18 @@ export default function ChatApp() {
   };
 
   const handleReactionClick = (messageId: number, reaction: string) => {
-    setMessages((prevMessages) =>
-      prevMessages.map((message) => (message.id === messageId ? { ...message, reaction: message.reaction === reaction ? "" : reaction } : message))
-    );
+    socketRef.current?.emit("addReaction", { messageId, reaction, userId: Number(userId) });
   };
 
   return (
     <div className="flex h-screen bg-gray-100">
-      <Sidebar isSidebarOpen={isSidebarOpen} toggleSidebar={toggleSidebar} contacts={allContact} setSelectedContact={setSelectedContact} />
+      <Sidebar
+        isSidebarOpen={isSidebarOpen}
+        toggleSidebar={toggleSidebar}
+        contacts={allContact}
+        setSelectedContact={setSelectedContact}
+        selectedContact={selectedContact}
+      />
       <ChatArea
         userId={userId}
         isSidebarOpen={isSidebarOpen}
@@ -288,7 +214,7 @@ export default function ChatApp() {
   );
 }
 
-const Sidebar = ({ isSidebarOpen, toggleSidebar, contacts, setSelectedContact }: SidebarProps) => (
+const Sidebar = ({ isSidebarOpen, toggleSidebar, contacts, setSelectedContact, selectedContact }: SidebarProps) => (
   <div className={`bg-white border-r transition-all duration-300 ${isSidebarOpen ? "w-80" : "w-0"}`}>
     <div className="p-4 flex justify-between items-center border-b">
       <h2 className="font-semibold">Contacts</h2>
@@ -298,15 +224,19 @@ const Sidebar = ({ isSidebarOpen, toggleSidebar, contacts, setSelectedContact }:
     </div>
     <ScrollArea className="h-[calc(100vh-64px)]">
       {contacts.map((contact) => (
-        <div key={contact.id} className="flex items-center p-4 hover:bg-gray-100 cursor-pointer" onClick={() => setSelectedContact(contact)}>
+        <div
+          key={contact.name}
+          className={`flex items-center p-4 ${selectedContact === contact ? "bg-blue-300 hover:bg-blue-400" : "bg-white hover:bg-gray-100 "} cursor-pointer`}
+          onClick={() => setSelectedContact(contact)}
+        >
           <Avatar>
             <AvatarImage
-              src={contact.type === "group" ? contact.imageUrl : contact.recipient.profileImage}
-              alt={contact.type === "group" ? contact.name : contact.recipient.username}
+              src={contact.type === "group" ? contact.imageUrl : contact.profileImage}
+              alt={contact.type === "group" ? contact.name : contact.name}
             />
-            <AvatarFallback>{contact.type === "group" ? contact.name : contact.recipient.username}</AvatarFallback>
+            <AvatarFallback>{contact.type === "group" ? contact.name : contact.name}</AvatarFallback>
           </Avatar>
-          <span className="ml-4 font-medium">{contact.type === "group" ? contact.name : contact.recipient.username}</span>
+          <span className="ml-4 font-medium">{contact.type === "group" ? contact.name : contact.name}</span>
         </div>
       ))}
     </ScrollArea>
@@ -337,15 +267,12 @@ const ChatArea = ({
           </Button>
         )}
         <Avatar>
-          <AvatarImage src={selectedContact?.avatar} alt={selectedContact?.name} />
-          <AvatarFallback>
-            {/* {selectedContact?.name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")} */}
-          </AvatarFallback>
+          <AvatarImage
+            src={selectedContact?.type === "group" ? selectedContact.imageUrl : selectedContact?.profileImage}
+            alt={selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}
+          />
         </Avatar>
-        <span className="ml-4 font-medium">{selectedContact?.name || "Select a contact"}</span>
+        <span className="ml-4 font-medium">{selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}</span>
       </div>
       <div className="space-x-4">
         <Button variant="ghost" onClick={() => handleCall(false)}>
@@ -378,7 +305,12 @@ const ChatArea = ({
               </div>
             )}
           </div>
-          {/* {message.reaction && <div className="text-lg mt-1">{message.reaction}</div>} */}
+          {message.reactions &&
+            message.reactions.map((reaction) => (
+              <div key={reaction.id} className="text-lg mt-1">
+                {reaction.emoji}
+              </div>
+            ))}
         </div>
       ))}
     </ScrollArea>
@@ -415,7 +347,7 @@ const CallDialog = ({
     <DialogContent>
       <DialogHeader>
         <DialogTitle>
-          {isVideoCall ? "Video Call" : "Audio Call"} with {selectedContact?.name}
+          {isVideoCall ? "Video Call" : "Audio Call"} with {selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}
         </DialogTitle>
       </DialogHeader>
       <div className="flex flex-col items-center">
@@ -425,15 +357,18 @@ const CallDialog = ({
           </div>
         )}
         <Avatar className="h-24 w-24 mb-4">
-          <AvatarImage src={selectedContact?.avatar} alt={selectedContact?.name} />
+          <AvatarImage
+            src={selectedContact?.type === "group" ? selectedContact.imageUrl : selectedContact?.profileImage}
+            alt={selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}
+          />
           <AvatarFallback>
-            {/* {selectedContact?.name
+            {selectedContact?.name
               .split(" ")
               .map((n) => n[0])
-              .join("")} */}
+              .join("")}
           </AvatarFallback>
         </Avatar>
-        <h2 className="text-2xl font-bold mb-4">{selectedContact?.name}</h2>
+        <h2 className="text-2xl font-bold mb-4">{selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}</h2>
         <div className="flex space-x-4">
           <Button variant={isMuted ? "destructive" : "secondary"} onClick={() => setIsMuted(!isMuted)}>
             {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}

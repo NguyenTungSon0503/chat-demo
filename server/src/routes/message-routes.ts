@@ -38,7 +38,7 @@ const getDirectMessages = async (userId: string, recipientId: string) => {
 };
 
 const getGroupMessages = async (groupId: string) => {
-  return await prisma.groupMessage.findMany({
+  return await prisma.message.findMany({
     where: { groupId: groupId },
     select: {
       id: true,

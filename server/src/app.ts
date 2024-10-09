@@ -126,21 +126,155 @@ const handleLeaveRoom =
     console.log(`User left room: ${roomId}`);
   };
 
-const handleSendDirectMessage =
+const handleSendMessage =
   (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
   async (messageData) => {
-    const { content, senderId, recipientId } = messageData;
+    const { content, senderId, recipientId, groupId } = messageData;
+    if (groupId) {
+      try {
+        const createdMessage = await prisma.message.create({
+          data: { content, senderId: Number(senderId), groupId: groupId },
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+            sender: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+            reactions: {
+              select: {
+                id: true,
+                emoji: true,
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const message = {
+          id: createdMessage.id,
+          content: createdMessage.content,
+          sender: {
+            id: createdMessage.sender.id,
+            username: createdMessage.sender.username,
+          },
+          createdAt: createdMessage.createdAt,
+          reactions: createdMessage.reactions,
+        };
+        io.to(groupId).emit('newMessage', message);
+      } catch (error) {
+        console.error('Error sending group message:', error);
+      }
+    }
+    if (recipientId) {
+      try {
+        const createdMessage = await prisma.message.create({
+          data: {
+            content,
+            senderId: Number(senderId),
+            recipientId: Number(recipientId),
+          },
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+            sender: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+            recipient: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+            reactions: {
+              select: {
+                id: true,
+                emoji: true,
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                  },
+                },
+              },
+            },
+            isRead: true,
+            mediaUrl: true,
+          },
+        });
+
+        const message = {
+          id: createdMessage.id,
+          content: createdMessage.content,
+          sender: {
+            id: createdMessage.sender.id,
+            username: createdMessage.sender.username,
+          },
+          recipient: {
+            recipientId: createdMessage.recipient?.id,
+            username: createdMessage.recipient?.username,
+          },
+          mediaUrl: createdMessage.mediaUrl,
+          isRead: createdMessage.isRead,
+          createdAt: createdMessage.createdAt,
+          reactions: createdMessage.reactions,
+        };
+
+        const recipientSocketId = userIdToSocketId[recipientId];
+        const senderSocketId = userIdToSocketId[senderId];
+
+        if (recipientSocketId) {
+          io.to(recipientSocketId).emit('newMessage', message);
+        }
+        io.to(senderSocketId).emit('newMessage', message);
+      } catch (error) {
+        console.error('Error sending direct message:', error);
+      }
+    }
+  };
+
+const handleReaction =
+  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
+  async (reactionData) => {
     try {
-      const createdMessage = await prisma.message.create({
+      const { messageId, userId, reaction } = reactionData;
+      await prisma.reaction.create({
         data: {
-          content,
-          senderId: Number(senderId),
-          recipientId: Number(recipientId),
+          messageId: messageId,
+          emoji: reaction,
+          userId: Number(userId),
         },
+        select: {
+          id: true,
+          emoji: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+        },
+      });
+
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
         select: {
           id: true,
           content: true,
           createdAt: true,
+          groupId: true,
           sender: {
             select: {
               id: true,
@@ -165,84 +299,28 @@ const handleSendDirectMessage =
               },
             },
           },
-          isRead: true,
-          mediaUrl: true,
         },
       });
 
-      const message = {
-        id: createdMessage.id,
-        content: createdMessage.content,
-        sender: {
-          id: createdMessage.sender.id,
-          username: createdMessage.sender.username,
-        },
-        recipient: {
-          recipientId: createdMessage.recipient.id,
-          username: createdMessage.recipient.username,
-        },
-        mediaUrl: createdMessage.mediaUrl,
-        isRead: createdMessage.isRead,
-        createdAt: createdMessage.createdAt,
-      };
-
-      const recipientSocketId = userIdToSocketId[recipientId];
-      const senderSocketId = userIdToSocketId[senderId];
-
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('newDirectMessage', message);
+      if (!message) {
+        return;
       }
-      io.to(senderSocketId).emit('newDirectMessage', message);
-    } catch (error) {
-      console.error('Error sending direct message:', error);
-    }
-  };
 
-const handleSendGroupMessage =
-  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
-  async (messageData) => {
-    const { content, senderId, groupId } = messageData;
-    try {
-      const createdMessage = await prisma.groupMessage.create({
-        data: { content, senderId: Number(senderId), groupId: groupId },
-        select: {
-          id: true,
-          content: true,
-          createdAt: true,
-          sender: {
-            select: {
-              id: true,
-              username: true,
-            },
-          },
-          reactions: {
-            select: {
-              id: true,
-              emoji: true,
-              user: {
-                select: {
-                  id: true,
-                  username: true,
-                },
-              },
-            },
-          },
-        },
-      });
+      const reactorSocketId = userIdToSocketId[userId];
 
-      const message = {
-        id: createdMessage.id,
-        content: createdMessage.content,
-        sender: {
-          id: createdMessage.sender.id,
-          username: createdMessage.sender.username,
-        },
-        createdAt: createdMessage.createdAt,
-        reactions: createdMessage.reactions,
-      };
-      io.to(groupId).emit('newGroupMessage', message);
+      const getReactedSocketId = userIdToSocketId[message.sender.id];
+
+      if (getReactedSocketId) {
+        io.to(getReactedSocketId).emit('newReaction', message);
+        io.to(reactorSocketId).emit('newReaction', message);
+      } else {
+        io.to(reactorSocketId).emit('newReaction', message);
+      }
+      if (message?.groupId) {
+        io.to(message.groupId).emit('newReaction', reaction);
+      }
     } catch (error) {
-      console.error('Error sending group message:', error);
+      console.error('Error sending reaction:', error);
     }
   };
 
@@ -260,8 +338,8 @@ const initializeSocket = (io: Server) => {
 
     socket.on('joinRoom', handleJoinRoom(socket));
     socket.on('leaveRoom', handleLeaveRoom(socket));
-    socket.on('sendDirectMessage', handleSendDirectMessage(socket));
-    socket.on('sendGroupMessage', handleSendGroupMessage(socket));
+    socket.on('sendMessage', handleSendMessage(socket));
+    socket.on('addReaction', handleReaction(socket));
 
     socket.on('disconnect', () => {
       const userId = socketIdToUserId[socket.id];

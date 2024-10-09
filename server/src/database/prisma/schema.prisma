@@ -30,20 +30,20 @@ model User {
   reactions        Reaction[]
   files            File[]
   notifications    Notification[]
-  GroupMessage     GroupMessage[]
 
   @@map("users")
 }
 
-// Message model for one-on-one chat
 model Message {
   id          String     @id @default(uuid())
   content     String?
   mediaUrl    String? // For image, video, audio, or other file attachments
   sender      User       @relation("SentMessages", fields: [senderId], references: [id])
   senderId    Int
-  recipient   User       @relation("ReceivedMessages", fields: [recipientId], references: [id])
-  recipientId Int
+  recipient   User?      @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  recipientId Int?
+  group       Group?     @relation(fields: [groupId], references: [id])
+  groupId     String?
   isRead      Boolean    @default(false) // Read receipt
   createdAt   DateTime   @default(now())
   reactions   Reaction[]
@@ -54,13 +54,13 @@ model Message {
 
 // Group model for group chat
 model Group {
-  id        String         @id @default(uuid())
+  id        String        @id @default(uuid())
   name      String
   imageUrl  String? // Group profile picture
   members   GroupMember[]
-  messages  GroupMessage[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  Message   Message[]
 
   @@map("groups")
 }
@@ -77,49 +77,29 @@ model GroupMember {
   @@map("group_members")
 }
 
-// GroupMessage model for messages within groups
-model GroupMessage {
-  id        String     @id @default(uuid())
-  content   String?
-  mediaUrl  String? // For multimedia attachments
-  sender    User       @relation(fields: [senderId], references: [id])
-  senderId  Int
-  group     Group      @relation(fields: [groupId], references: [id])
-  groupId   String
-  createdAt DateTime   @default(now())
-  reactions Reaction[]
-  files     File[]
-
-  @@map("group_messages")
-}
-
 // Reaction model for reacting to messages
 model Reaction {
-  id             Int           @id @default(autoincrement())
-  emoji          String // Emoji for reaction
-  user           User          @relation(fields: [userId], references: [id])
-  userId         Int
-  message        Message?      @relation(fields: [messageId], references: [id])
-  messageId      String?
-  groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
-  groupMessageId String?
-  createdAt      DateTime      @default(now())
+  id        Int      @id @default(autoincrement())
+  emoji     String // Emoji for reaction
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  message   Message? @relation(fields: [messageId], references: [id])
+  messageId String?
+  createdAt DateTime @default(now())
 
   @@map("reactions")
 }
 
 // File model for handling file sharing
 model File {
-  id             Int           @id @default(autoincrement())
-  url            String // URL to the file
-  type           FileType // Enum to represent file types
-  sender         User          @relation(fields: [senderId], references: [id])
-  senderId       Int
-  message        Message?      @relation(fields: [messageId], references: [id])
-  messageId      String?
-  groupMessage   GroupMessage? @relation(fields: [groupMessageId], references: [id])
-  groupMessageId String?
-  createdAt      DateTime      @default(now())
+  id        Int      @id @default(autoincrement())
+  url       String // URL to the file
+  type      FileType // Enum to represent file types
+  sender    User     @relation(fields: [senderId], references: [id])
+  senderId  Int
+  message   Message? @relation(fields: [messageId], references: [id])
+  messageId String?
+  createdAt DateTime @default(now())
 
   @@map("files")
 }
