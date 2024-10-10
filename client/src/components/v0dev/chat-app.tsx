@@ -3,15 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { api } from "@/config/api";
+import { useMessages } from "@/hooks/use-message";
+import { useSocket } from "@/hooks/use-socket";
 import { formatDate } from "@/utils/formatDate";
-import axios from "axios";
 import EmojiPicker from "emoji-picker-react";
 import Cookies from "js-cookie";
 import { Menu, Mic, MicOff, Paperclip, Phone, Send, Video, VideoOff, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useSocket } from "@/hooks/use-socket";
-import { useMessages } from "@/hooks/use-message";
-import { API_URL } from "@/constant/api";
+import { useEffect, useRef, useState } from "react";
 
 type GroupContact = {
   id: string;
@@ -122,13 +121,13 @@ export default function ChatApp() {
   const [hoveredMessageId, setHoveredMessageId] = useState<number | null>(null);
 
   const userId = Cookies.get("userId");
-  const socketRef = useSocket(userId);
-  const messages = useMessages(selectedContact, userId, socketRef);
+  const socketRef = useSocket();
+  const messages = useMessages(selectedContact, socketRef);
 
   useEffect(() => {
     const fetchAllContacts = async () => {
       try {
-        const response = await axios.get(`${API_URL}/groups/${userId}`);
+        const response = await api.get(`api/groups`);
         setAllContact(response.data);
         setSelectedContact(response.data[0]);
       } catch (error) {
@@ -257,80 +256,89 @@ const ChatArea = ({
   hoveredMessageId,
   setHoveredMessageId,
   handleReactionClick,
-}: ChatAreaProps) => (
-  <div className="flex-1 flex flex-col">
-    <div className="bg-white p-4 flex justify-between items-center border-b">
-      <div className="flex items-center">
-        {!isSidebarOpen && (
-          <Button variant="ghost" onClick={toggleSidebar} className="mr-2">
-            <Menu className="h-5 w-5" />
-          </Button>
-        )}
-        <Avatar>
-          <AvatarImage
-            src={selectedContact?.type === "group" ? selectedContact.imageUrl : selectedContact?.profileImage}
-            alt={selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}
-          />
-        </Avatar>
-        <span className="ml-4 font-medium">{selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}</span>
-      </div>
-      <div className="space-x-4">
-        <Button variant="ghost" onClick={() => handleCall(false)}>
-          <Phone className="h-5 w-5" />
-        </Button>
-        <Button variant="ghost" onClick={() => handleCall(true)}>
-          <Video className="h-5 w-5" />
-        </Button>
-      </div>
-    </div>
-    <ScrollArea className="flex-1 p-4">
-      {messages.map((message) => (
-        <div key={message.id} className={`mb-4 ${message.sender.id === Number(userId) ? "text-right" : ""}`}>
-          <div className="text-xs font-bold text-gray-500 mt-1">{formatDate(message.createdAt)}</div>
-          <div
-            className={`inline-block p-2 rounded-lg max-w-xs ${message.sender.id === Number(userId) ? "bg-blue-500 text-white" : "bg-gray-200"}`}
-            onMouseEnter={() => setHoveredMessageId(message.id)}
-            onMouseLeave={() => setHoveredMessageId(null)}
-          >
-            {message.content}
-            {hoveredMessageId === message.id && message.sender.id !== Number(userId) && (
-              <div className="absolute">
-                <EmojiPicker
-                  lazyLoadEmojis
-                  reactionsDefaultOpen
-                  allowExpandReactions
-                  onReactionClick={(react) => handleReactionClick(message.id, react.emoji)}
-                  onEmojiClick={(emoji) => console.log("Emoji clicked:", emoji)}
-                />
-              </div>
-            )}
-          </div>
-          {message.reactions &&
-            message.reactions.map((reaction) => (
-              <div key={reaction.id} className="text-lg mt-1">
-                {reaction.emoji}
-              </div>
-            ))}
+}: ChatAreaProps) => {
+  const endOfMessagesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <div className="bg-white p-4 flex justify-between items-center border-b">
+        <div className="flex items-center">
+          {!isSidebarOpen && (
+            <Button variant="ghost" onClick={toggleSidebar} className="mr-2">
+              <Menu className="h-5 w-5" />
+            </Button>
+          )}
+          <Avatar>
+            <AvatarImage
+              src={selectedContact?.type === "group" ? selectedContact.imageUrl : selectedContact?.profileImage}
+              alt={selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}
+            />
+          </Avatar>
+          <span className="ml-4 font-medium">{selectedContact?.type === "group" ? selectedContact.name : selectedContact?.name}</span>
         </div>
-      ))}
-    </ScrollArea>
-    <div className="bg-white p-4 border-t flex items-center gap-3">
-      <Input
-        className="flex-1 mx-2 border-gray-300"
-        placeholder="Type a message..."
-        value={inputMessage}
-        onChange={(e) => setInputMessage(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-      />
-      <Button variant="ghost" onClick={handleFileAttachment} className="border-gray-400">
-        <Paperclip className="h-5 w-5" />
-      </Button>
-      <Button onClick={handleSendMessage}>
-        <Send className="h-5 w-5" />
-      </Button>
+        <div className="space-x-4">
+          <Button variant="ghost" onClick={() => handleCall(false)}>
+            <Phone className="h-5 w-5" />
+          </Button>
+          <Button variant="ghost" onClick={() => handleCall(true)}>
+            <Video className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+      <ScrollArea className="flex-1 p-4 relative">
+        {messages.map((message) => (
+          <div key={message.id} className={`mb-3 relative ${message.sender.id === Number(userId) ? "text-right" : ""}`}>
+            <div className="text-xs font-bold text-gray-500 mb-1">{formatDate(message.createdAt)}</div>
+            <div
+              className={`inline-block p-2 rounded-lg max-w-xs ${message.sender.id === Number(userId) ? "bg-blue-500 text-white" : "bg-gray-200"}`}
+              onMouseEnter={() => setHoveredMessageId(message.id)}
+              onMouseLeave={() => setHoveredMessageId(null)}
+            >
+              {message.content}
+              {hoveredMessageId === message.id && message.sender.id !== Number(userId) && (
+                <div className="absolute z-10">
+                  <EmojiPicker
+                    lazyLoadEmojis
+                    reactionsDefaultOpen
+                    allowExpandReactions
+                    onReactionClick={(react) => handleReactionClick(message.id, react.getImageUrl())}
+                    onEmojiClick={(emoji) => handleReactionClick(message.id, emoji.getImageUrl())}
+                  />
+                </div>
+              )}
+            </div>
+            {message.reactions &&
+              message.reactions.map((reaction) => (
+                <div key={reaction.id} className={`w-4 h-4 mt-2 ${message.sender.id === Number(userId) ? "ml-auto" : ""}`}>
+                  <img src={reaction.emoji}></img>
+                </div>
+              ))}
+          </div>
+        ))}
+        <div ref={endOfMessagesRef} />
+      </ScrollArea>
+      <div className="bg-white p-4 border-t flex items-center gap-3">
+        <Input
+          className="flex-1 mx-2 border-gray-300"
+          placeholder="Type a message..."
+          value={inputMessage}
+          onChange={(e) => setInputMessage(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+        />
+        <Button variant="ghost" onClick={handleFileAttachment} className="border-gray-400">
+          <Paperclip className="h-5 w-5" />
+        </Button>
+        <Button onClick={handleSendMessage}>
+          <Send className="h-5 w-5" />
+        </Button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const CallDialog = ({
   isCallActive,

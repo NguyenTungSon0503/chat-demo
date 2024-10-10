@@ -10,7 +10,7 @@ const config: ConfigModel = {
   jwt: {
     access_key: env.JWT_SECRET || 'abcddd!@#11231',
     refresh_key: env.JWT_REFRESH_SECRET || 'abcddd!@#test123',
-    access_expiration: '10m', // milliseconds (e.g.: 60, "2 days", "10h", "7d")
+    access_expiration: '2d', // milliseconds (e.g.: 60, "2 days", "10h", "7d")
     refesh_expiration: '15d', // milliseconds (e.g.: 60, "2 days", "10h", "7d")
     algorithm: 'HS256', // (default: HS256)
     cache_prefix: 'token:',

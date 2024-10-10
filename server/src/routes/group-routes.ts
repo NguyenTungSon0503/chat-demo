@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import prisma from '../third-party/prisma';
+import { authMiddleware } from '../middleware/authMiddleware';
 
 const router: Router = express.Router();
 
@@ -13,8 +14,9 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/:userId', async (req, res) => {
-  const { userId } = req.params;
+router.get('/', authMiddleware, async (req, res) => {
+  const userId = req.user?.id;
+
   try {
     // Fetch the groups the user has joined
     const userGroups = await prisma.group.findMany({

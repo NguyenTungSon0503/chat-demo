@@ -2,9 +2,9 @@ import { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import jwt from 'jsonwebtoken';
 import config from '../config/config';
-import { IUser, UserAuth } from '../interface/user_interface';
-import getUserInfor from '../utils/getUserInfor';
-import ApiError from '../utils/ApiError';
+import { UserAuth } from '../interface/user_interface';
+// import getUserInfor from '../utils/getUserInfor';
+import prisma from '../third-party/prisma';
 
 const { access_key } = config.jwt;
 
@@ -25,7 +25,9 @@ const authMiddleware = async (
     try {
       if (token) {
         const decoded = jwt.verify(token, access_key) as UserAuth;
-        const user = await getUserInfor(next, decoded?.email);
+        const user = await prisma.user.findUnique({
+          where: { email: decoded.email },
+        });
         if (!user) {
           return res.status(StatusCodes.NOT_FOUND).send({
             message: `User not found`,
@@ -46,57 +48,57 @@ const authMiddleware = async (
   }
 };
 
-const requireRole = (requiredRoles: string[]) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const user: IUser = req.user;
+// const requireRole = (requiredRoles: string[]) => {
+//   return async (req: Request, res: Response, next: NextFunction) => {
+//     try {
+//       const user: IUser = req.user;
 
-      const userHighestRoleLevel = Math.max(
-        ...user.roles.map((role) => ROLE_HIERARCHY[role] || 0),
-      );
+//       const userHighestRoleLevel = Math.max(
+//         ...user.roles.map((role) => ROLE_HIERARCHY[role] || 0),
+//       );
 
-      const requiredRoleLevel = Math.min(
-        ...requiredRoles.map((role) => ROLE_HIERARCHY[role] || 0),
-      );
+//       const requiredRoleLevel = Math.min(
+//         ...requiredRoles.map((role) => ROLE_HIERARCHY[role] || 0),
+//       );
 
-      if (userHighestRoleLevel < requiredRoleLevel) {
-        return res.status(StatusCodes.FORBIDDEN).json({
-          message: 'You not allowed to access this',
-        });
-      }
+//       if (userHighestRoleLevel < requiredRoleLevel) {
+//         return res.status(StatusCodes.FORBIDDEN).json({
+//           message: 'You not allowed to access this',
+//         });
+//       }
 
-      next();
-    } catch (error: any) {
-      next(error);
-      throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
-    }
-  };
-};
+//       next();
+//     } catch (error: any) {
+//       next(error);
+//       throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+//     }
+//   };
+// };
 
-const requirePermission = (requiredPermissions: string[]) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const user: IUser = req.user;
+// const requirePermission = (requiredPermissions: string[]) => {
+//   return async (req: Request, res: Response, next: NextFunction) => {
+//     try {
+//       const user: IUser = req.user;
 
-      const hasRequiredPermissions = requiredPermissions.every(
-        (requiredPermission: string) =>
-          user.permissions?.some(
-            (userPermission: string) => userPermission === requiredPermission,
-          ),
-      );
+//       const hasRequiredPermissions = requiredPermissions.every(
+//         (requiredPermission: string) =>
+//           user.permissions?.some(
+//             (userPermission: string) => userPermission === requiredPermission,
+//           ),
+//       );
 
-      if (!hasRequiredPermissions) {
-        return res.status(StatusCodes.FORBIDDEN).json({
-          message: 'You not allowed to do this action',
-        });
-      }
+//       if (!hasRequiredPermissions) {
+//         return res.status(StatusCodes.FORBIDDEN).json({
+//           message: 'You not allowed to do this action',
+//         });
+//       }
 
-      next();
-    } catch (error: any) {
-      next(error);
-      throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
-    }
-  };
-};
+//       next();
+//     } catch (error: any) {
+//       next(error);
+//       throw new ApiError(StatusCodes.INTERNAL_SERVER_ERROR, error.message);
+//     }
+//   };
+// };
 
-export { authMiddleware, requireRole, requirePermission };
+export { authMiddleware };

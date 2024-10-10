@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { api } from "@/config/api";
 import { zodResolver } from "@hookform/resolvers/zod";
-import axios from "axios";
 import Cookies from "js-cookie";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -29,7 +29,7 @@ export default function Login() {
 
   const onSubmit: SubmitHandler<z.infer<typeof loginFormSchema>> = async (data) => {
     try {
-      const response = await axios.post("http://localhost:5000/auth/login", data);
+      const response = await api.post("auth/login", data);
 
       if (response.status === 200) {
         navigate("/");

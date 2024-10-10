@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import prisma from '../third-party/prisma';
+import { authMiddleware } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -66,10 +67,11 @@ const getGroupMessages = async (groupId: string) => {
   });
 };
 
-router.get('/direct', async (req, res) => {
-  const { userId, recipientId } = req.query;
+router.get('/direct', authMiddleware, async (req, res) => {
+  const { recipientId } = req.query;
+  const userId = req.user?.id;
 
-  if (!userId || !recipientId) {
+  if (!recipientId) {
     return res.status(400).json({ error: 'Missing userId or recipientId' });
   }
 

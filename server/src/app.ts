@@ -12,6 +12,13 @@ import authRouter from './routes/auth-routes';
 import messageRouter from './routes/message-routes';
 import groupRouter from './routes/group-routes';
 import { generateSASTokenWithUrl } from './third-party/azure';
+import jwt from 'jsonwebtoken';
+import { UserAuth } from './interface/user_interface';
+
+const { access_key } = config.jwt;
+interface CustomSocket extends Socket {
+  userId?: number;
+}
 
 const { URL, NODE_ENV } = config.env;
 const app: Express = express();
@@ -24,7 +31,7 @@ const io = new Server(server, {
 
 const corsOptions: CorsOptions = {
   credentials: true,
-  origin: URL,
+  origin: '*',
 };
 
 // if (NODE_ENV === 'development') {
@@ -42,11 +49,35 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/messages', messageRouter);
 app.use('/api/groups', groupRouter);
 
+io.use(async (socket: CustomSocket, next) => {
+  const token = socket.handshake.auth.accessToken;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  try {
+    const decoded = jwt.verify(token, access_key) as UserAuth;
+    const user = await prisma.user.findUnique({
+      where: { email: decoded.email },
+    });
+
+    if (!user) {
+      return next(new Error('User not found'));
+    }
+
+    socket.userId = user.id;
+    next();
+  } catch (error: any) {
+    console.log(error);
+    return next(new Error('Authentication error'));
+  }
+});
+
 app.use(errorHandlingMiddleware);
 
 const handleJoinRoom =
-  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
-  async ({ groupId, userId }) => {
+  (socket: CustomSocket) =>
+  async ({ groupId }) => {
+    const userId = socket.userId;
     try {
       const group = await prisma.group.findUnique({
         where: { id: groupId },
@@ -113,168 +144,80 @@ const handleJoinRoom =
       //   return;
       // }
       socket.join(groupId);
-      console.log(`User joined room: ${groupId}`);
+      console.log(`User ${userId} joined room: ${groupId}`);
     } catch (error) {
       console.error('Error joining room:', error);
     }
   };
 
-const handleLeaveRoom =
-  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
-  (roomId) => {
-    socket.leave(roomId);
-    console.log(`User left room: ${roomId}`);
-  };
+const handleLeaveRoom = (socket: CustomSocket) => (roomId) => {
+  const userId = socket.userId;
+  socket.leave(roomId);
+  console.log(`User ${userId} left room: ${roomId}`);
+};
 
-const handleSendMessage =
-  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
-  async (messageData) => {
-    const { content, senderId, recipientId, groupId } = messageData;
-    if (groupId) {
-      try {
-        const createdMessage = await prisma.message.create({
-          data: { content, senderId: Number(senderId), groupId: groupId },
-          select: {
-            id: true,
-            content: true,
-            createdAt: true,
-            sender: {
-              select: {
-                id: true,
-                username: true,
-              },
-            },
-            reactions: {
-              select: {
-                id: true,
-                emoji: true,
-                user: {
-                  select: {
-                    id: true,
-                    username: true,
-                  },
-                },
-              },
-            },
-          },
-        });
+const handleSendMessage = (socket: CustomSocket) => async (messageData) => {
+  const userId = socket.userId;
 
-        const message = {
-          id: createdMessage.id,
-          content: createdMessage.content,
-          sender: {
-            id: createdMessage.sender.id,
-            username: createdMessage.sender.username,
-          },
-          createdAt: createdMessage.createdAt,
-          reactions: createdMessage.reactions,
-        };
-        io.to(groupId).emit('newMessage', message);
-      } catch (error) {
-        console.error('Error sending group message:', error);
-      }
-    }
-    if (recipientId) {
-      try {
-        const createdMessage = await prisma.message.create({
-          data: {
-            content,
-            senderId: Number(senderId),
-            recipientId: Number(recipientId),
-          },
-          select: {
-            id: true,
-            content: true,
-            createdAt: true,
-            sender: {
-              select: {
-                id: true,
-                username: true,
-              },
-            },
-            recipient: {
-              select: {
-                id: true,
-                username: true,
-              },
-            },
-            reactions: {
-              select: {
-                id: true,
-                emoji: true,
-                user: {
-                  select: {
-                    id: true,
-                    username: true,
-                  },
-                },
-              },
-            },
-            isRead: true,
-            mediaUrl: true,
-          },
-        });
+  if (!userId) return;
 
-        const message = {
-          id: createdMessage.id,
-          content: createdMessage.content,
-          sender: {
-            id: createdMessage.sender.id,
-            username: createdMessage.sender.username,
-          },
-          recipient: {
-            recipientId: createdMessage.recipient?.id,
-            username: createdMessage.recipient?.username,
-          },
-          mediaUrl: createdMessage.mediaUrl,
-          isRead: createdMessage.isRead,
-          createdAt: createdMessage.createdAt,
-          reactions: createdMessage.reactions,
-        };
-
-        const recipientSocketId = userIdToSocketId[recipientId];
-        const senderSocketId = userIdToSocketId[senderId];
-
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit('newMessage', message);
-        }
-        io.to(senderSocketId).emit('newMessage', message);
-      } catch (error) {
-        console.error('Error sending direct message:', error);
-      }
-    }
-  };
-
-const handleReaction =
-  (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) =>
-  async (reactionData) => {
+  const { content, recipientId, groupId } = messageData;
+  if (groupId) {
     try {
-      const { messageId, userId, reaction } = reactionData;
-      await prisma.reaction.create({
-        data: {
-          messageId: messageId,
-          emoji: reaction,
-          userId: Number(userId),
-        },
+      const createdMessage = await prisma.message.create({
+        data: { content, senderId: userId, groupId: groupId },
         select: {
           id: true,
-          emoji: true,
-          user: {
+          content: true,
+          createdAt: true,
+          sender: {
             select: {
               id: true,
               username: true,
             },
           },
+          reactions: {
+            select: {
+              id: true,
+              emoji: true,
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      const message = await prisma.message.findUnique({
-        where: { id: messageId },
+      const message = {
+        id: createdMessage.id,
+        content: createdMessage.content,
+        sender: {
+          id: createdMessage.sender.id,
+          username: createdMessage.sender.username,
+        },
+        createdAt: createdMessage.createdAt,
+        reactions: createdMessage.reactions,
+      };
+      io.to(groupId).emit('newMessage', message);
+    } catch (error) {
+      console.error('Error sending group message:', error);
+    }
+  }
+  if (recipientId) {
+    try {
+      const createdMessage = await prisma.message.create({
+        data: {
+          content,
+          senderId: userId,
+          recipientId: Number(recipientId),
+        },
         select: {
           id: true,
           content: true,
           createdAt: true,
-          groupId: true,
           sender: {
             select: {
               id: true,
@@ -299,25 +242,98 @@ const handleReaction =
               },
             },
           },
+          isRead: true,
+          mediaUrl: true,
         },
       });
 
-      if (!message) {
-        return;
+      const message = {
+        id: createdMessage.id,
+        content: createdMessage.content,
+        sender: {
+          id: createdMessage.sender.id,
+          username: createdMessage.sender.username,
+        },
+        recipient: {
+          recipientId: createdMessage.recipient?.id,
+          username: createdMessage.recipient?.username,
+        },
+        mediaUrl: createdMessage.mediaUrl,
+        isRead: createdMessage.isRead,
+        createdAt: createdMessage.createdAt,
+        reactions: createdMessage.reactions,
+      };
+
+      const recipientSocketId = userIdToSocketId[recipientId];
+      const senderSocketId = userIdToSocketId[userId];
+
+      if (recipientSocketId) {
+        io.to(recipientSocketId).emit('newMessage', message);
       }
+      io.to(senderSocketId).emit('newMessage', message);
+    } catch (error) {
+      console.error('Error sending direct message:', error);
+    }
+  }
+};
+
+const handleReaction =
+  (socket: CustomSocket) =>
+  async ({ messageId, reaction }: { messageId: string; reaction: string }) => {
+    const userId = socket.userId;
+    if (!userId) return;
+
+    try {
+      const userReaction = await prisma.reaction.findFirst({
+        where: { messageId, userId },
+      });
+
+      if (userReaction) {
+        if (userReaction.emoji === reaction) {
+          await prisma.reaction.delete({ where: { id: userReaction.id } });
+        } else {
+          await prisma.reaction.update({
+            where: { id: userReaction.id },
+            data: { emoji: reaction },
+          });
+        }
+      } else {
+        await prisma.reaction.create({
+          data: { emoji: reaction, messageId, userId },
+        });
+      }
+
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: {
+          id: true,
+          content: true,
+          createdAt: true,
+          groupId: true,
+          sender: { select: { id: true, username: true } },
+          recipient: { select: { id: true, username: true } },
+          reactions: {
+            select: {
+              id: true,
+              emoji: true,
+              user: { select: { id: true, username: true } },
+            },
+          },
+        },
+      });
+
+      if (!message) return;
 
       const reactorSocketId = userIdToSocketId[userId];
+      const reactedSocketId = userIdToSocketId[message.sender.id];
 
-      const getReactedSocketId = userIdToSocketId[message.sender.id];
-
-      if (getReactedSocketId) {
-        io.to(getReactedSocketId).emit('newReaction', message);
-        io.to(reactorSocketId).emit('newReaction', message);
-      } else {
-        io.to(reactorSocketId).emit('newReaction', message);
+      if (reactedSocketId) {
+        io.to(reactedSocketId).emit('newReaction', message);
       }
-      if (message?.groupId) {
-        io.to(message.groupId).emit('newReaction', reaction);
+      io.to(reactorSocketId).emit('newReaction', message);
+
+      if (message.groupId) {
+        io.to(message.groupId).emit('newReaction', message);
       }
     } catch (error) {
       console.error('Error sending reaction:', error);
@@ -328,8 +344,13 @@ const socketIdToUserId = {};
 const userIdToSocketId = {};
 
 const initializeSocket = (io: Server) => {
-  io.on('connection', (socket) => {
-    const userId = socket.handshake.query.userId as string;
+  io.on('connection', (socket: CustomSocket) => {
+    const userId = socket.userId;
+
+    if (!userId) {
+      return;
+    }
+
     // Map socket ID to user ID and vice versa
     socketIdToUserId[socket.id] = userId;
     userIdToSocketId[userId] = socket.id;

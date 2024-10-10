@@ -1,7 +1,6 @@
-import axios from "axios";
+import { api } from "@/config/api";
 import { useEffect, useState } from "react";
 import { Socket } from "socket.io-client";
-import { API_URL } from "@/constant/api";
 
 type GroupContact = {
   id: string;
@@ -64,7 +63,7 @@ type GroupMessage = {
 
 type Message = DirectMessage | GroupMessage;
 
-export const useMessages = (selectedContact: Contact | null, userId: string | undefined, socketRef: React.MutableRefObject<Socket | null>) => {
+export const useMessages = (selectedContact: Contact | null, socketRef: React.MutableRefObject<Socket | null>) => {
   const [messages, setMessages] = useState<Message[]>([]);
 
   useEffect(() => {
@@ -75,7 +74,7 @@ export const useMessages = (selectedContact: Contact | null, userId: string | un
 
     const fetchMessages = async () => {
       try {
-        const params = type === "direct" ? { userId: Number(userId), recipientId: id } : { groupId: id };
+        const params = type === "direct" ? { recipientId: id } : { groupId: id };
         const queryString = new URLSearchParams(
           Object.entries(params).reduce((acc, [key, value]) => {
             if (value !== undefined) {
@@ -84,7 +83,7 @@ export const useMessages = (selectedContact: Contact | null, userId: string | un
             return acc;
           }, {} as Record<string, string>)
         );
-        const response = await axios.get(`${API_URL}/messages/${type}?${queryString}`);
+        const response = await api.get(`api/messages/${type}?${queryString}`);
         setMessages(response.data);
       } catch (error) {
         console.error("Error fetching messages:", error);
@@ -92,7 +91,7 @@ export const useMessages = (selectedContact: Contact | null, userId: string | un
     };
 
     fetchMessages();
-  }, [selectedContact, userId]);
+  }, [selectedContact]);
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -123,7 +122,7 @@ export const useMessages = (selectedContact: Contact | null, userId: string | un
     socket.on("newMessage", handleNewMessage);
 
     if (type === "group") {
-      socket.emit("joinRoom", { groupId: id, userId });
+      socket.emit("joinRoom", { groupId: id });
     }
 
     return () => {
@@ -132,7 +131,7 @@ export const useMessages = (selectedContact: Contact | null, userId: string | un
         socket.emit("leaveRoom", id);
       }
     };
-  }, [selectedContact, userId]);
+  }, [selectedContact]);
 
   return messages;
 };

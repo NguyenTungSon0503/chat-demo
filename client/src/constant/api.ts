@@ -1,3 +1,1 @@
-export const API_URL = "http://localhost:5000/api";
-
-export const SOCKET_URL = "http://localhost:5000";
+export const SOCKET_URL = "http://172.20.109.172:5000";
