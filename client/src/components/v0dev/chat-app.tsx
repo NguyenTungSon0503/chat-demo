@@ -289,12 +289,14 @@ const ChatArea = ({
           </Button>
         </div>
       </div>
-      <ScrollArea className="flex-1 p-4 relative">
+      <ScrollArea className="flex-1 p-4">
         {messages.map((message) => (
           <div key={message.id} className={`mb-3 relative ${message.sender.id === Number(userId) ? "text-right" : ""}`}>
             <div className="text-xs font-bold text-gray-500 mb-1">{formatDate(message.createdAt)}</div>
             <div
-              className={`inline-block p-2 rounded-lg max-w-xs ${message.sender.id === Number(userId) ? "bg-blue-500 text-white" : "bg-gray-200"}`}
+              className={`inline-block p-2 break-all text-wrap text-left rounded-lg max-w-md ${
+                message.sender.id === Number(userId) ? "bg-blue-500 text-white" : "bg-gray-200"
+              }`}
               onMouseEnter={() => setHoveredMessageId(message.id)}
               onMouseLeave={() => setHoveredMessageId(null)}
             >
@@ -314,7 +316,7 @@ const ChatArea = ({
             {message.reactions &&
               message.reactions.map((reaction) => (
                 <div key={reaction.id} className={`w-4 h-4 mt-2 ${message.sender.id === Number(userId) ? "ml-auto" : ""}`}>
-                  <img src={reaction.emoji}></img>
+                  <img src={reaction.emoji} alt="reaction" />
                 </div>
               ))}
           </div>
